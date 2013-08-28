@@ -26,7 +26,7 @@ static char *ngx_http_http_headers_static_merge_loc_conf_(ngx_conf_t *, void *, 
 static ngx_int_t ngx_http_headers_static_header_filter_(ngx_http_request_t *);
 
 
-static ngx_command_t ngx_http_headers_static_commands[] = {
+static ngx_command_t ngx_http_headers_static_commands_[] = {
 	{	ngx_string("static_headers"),
 		NGX_HTTP_LOC_CONF|NGX_CONF_FLAG,
 		ngx_conf_set_flag_slot,
@@ -55,7 +55,7 @@ static ngx_command_t ngx_http_headers_static_commands[] = {
 };
 
 
-static ngx_http_module_t  ngx_http_headers_static_module_ctx = {
+static ngx_http_module_t  ngx_http_headers_static_module_ctx_ = {
 	NULL,
 	ngx_http_headers_static_init_,
 	NULL,
@@ -107,8 +107,8 @@ char *ngx_http_http_headers_static_merge_loc_conf_(ngx_conf_t *cf, void *parent,
 
 ngx_module_t  ngx_http_headers_static_module = {
 	NGX_MODULE_V1,
-	&ngx_http_headers_static_module_ctx,
-	ngx_http_headers_static_commands,
+	&ngx_http_headers_static_module_ctx_,
+	ngx_http_headers_static_commands_,
 	NGX_HTTP_MODULE,
 	NULL,
 	NULL,
@@ -188,12 +188,18 @@ ngx_int_t metafilename_build_(ngx_pool_t *pool, ngx_str_t *source_path, ngx_http
 
 	This is destructive to the indexed strings: it updates the string struct
 	the index points to, losing the old pointer and length.
+
+	FIXME:
+		cache-control header is not implemented
+		last-modified header is not validated
 */
 inline
 static
-ngx_int_t ngx_http_header_set_(ngx_http_request_t *r, ngx_str_t *key, ngx_str_t *value, ngx_uint_t strict) {
+ngx_int_t ngx_http_header_set_(ngx_http_request_t *r, ngx_str_t *key, ngx_str_t *value, ngx_uint_t strict, ngx_table_elt_t **ref) {
 	ngx_table_elt_t *h = NULL;
 	ngx_table_elt_t **h_ref = NULL;
+
+	*ref = NULL;
 
 	/* Special-case the built-in headers, and fail on protocol-and-
 		server-behavioral-headers.  There is certainly a case for 'no, really,
@@ -202,7 +208,7 @@ ngx_int_t ngx_http_header_set_(ngx_http_request_t *r, ngx_str_t *key, ngx_str_t 
 
 		These headers are not allowed to be overridden, because they are
 		generated based on content or connection state, and thus shouldn't be
-		represented staticly:
+		represented statically:
 			www_authenticate
 			content_length
 			content_range
@@ -383,9 +389,10 @@ ngx_int_t ngx_http_header_set_(ngx_http_request_t *r, ngx_str_t *key, ngx_str_t 
 			r->headers_out.status_line.len = b.end - status.start;
 
 			ngx_log_debug(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
-			              "status:%d", status.code);
+			              "%s status:%d", module_name_, status.code);
 			ngx_log_debug(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
-			              "status.start:%s\n\tstatus_len:%d",
+			              "%s status.start:%s\n\tstatus_len:%d",
+			              module_name_,
 			              status.start, r->headers_out.status_line.len);
 
 			return NGX_OK;
@@ -449,6 +456,8 @@ ngx_int_t ngx_http_header_set_(ngx_http_request_t *r, ngx_str_t *key, ngx_str_t 
 	h->key = *key;
 	h->value = *value;
 
+	*ref = h;
+
 	return NGX_OK;
 }
 
@@ -456,8 +465,7 @@ ngx_int_t ngx_http_header_set_(ngx_http_request_t *r, ngx_str_t *key, ngx_str_t 
 /**	Parse through the specified file, adding all headers encountered to the
 	response.
 
-	FIXME: this does not currently work for multi-line headers!
-		Also, is a little janky around the edges.
+	FIXME: this is pretty janky
 
 */
 inline
@@ -470,6 +478,7 @@ ngx_int_t static_header_file_process_(ngx_file_t *f, ngx_http_request_t *r) {
 	ngx_buf_t b;
 	ngx_int_t rc;
 	size_t metafile_sz;
+	ngx_table_elt_t *ref;
 
 	ngx_log_debug(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
 	               "%s processing metafile: %s", module_name_, f->name.data);
@@ -496,15 +505,14 @@ ngx_int_t static_header_file_process_(ngx_file_t *f, ngx_http_request_t *r) {
 	if (n != metafile_sz)
 		return NGX_ERROR;
 
-	/* FIXME: */
-	/* derpily try to make things easier for parser to terminate */
+	/* XXX: dumb hack to ensure the header-parser will terminate */
 	ngx_memcpy(buf + metafile_sz, "\r\n\r\n\0", 5);
 
 	ngx_log_debug(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
-	              "read %d bytes of %d", n, metafile_sz);
+	              "%s read %d bytes of %d", module_name_, n, metafile_sz);
 
 	ngx_log_debug(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
-	              "%*s", metafile_sz, buf);
+	              "%s\n%*s", module_name_, metafile_sz, buf);
 
 	ngx_memset(&b, 0, sizeof b);
 	b.start = b.pos = buf;
@@ -519,36 +527,60 @@ ngx_int_t static_header_file_process_(ngx_file_t *f, ngx_http_request_t *r) {
 	r->invalid_header = 0;
 	r->header_name_start = r->header_name_end = r->header_start = r->header_end = NULL;
 
+	ref = NULL;
+
 	for (;;) {
+		ngx_log_debug(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
+		              "%s ref:%p", module_name_, ref);
+		if (ref)
+			ngx_log_debug(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
+			              "%s ref k[%d %*s] v[%d %*s]", module_name_,
+			              ref->key.len, ref->key.len, ref->key.data,
+			              ref->value.len, ref->value.len, ref->value.data);
+
 		rc = ngx_http_parse_header_line(r, &b, 1);
 
 		if (rc == NGX_OK) {
 			ngx_log_debug(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
-			              "header parsed OK");
+			              "%s header parsed OK", module_name_);
 
 			if (r->invalid_header) {
-				ngx_log_error(NGX_LOG_INFO, r->connection->log, 0,
-				              "invalid header in metafile \"%s\": \"%*s\"",
-				              f->name.data,
-				              r->header_end - r->header_name_start,
-				              r->header_name_start);
+				if ((*(r->header_name_start) != ' ' && *(r->header_name_start) != '\t')
+				||  ref == NULL) {
+					ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+					              "%s invalid header in metafile \"%s\": \"%*s\"",
+					              module_name_,
+					              f->name.data,
+					              r->header_end - r->header_name_start,
+					              r->header_name_start);
+					ref = NULL;
+
+					continue;
+				}
+
+				ngx_log_debug(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
+				              "%s continuing header %p [%d, %*s].. (%p %p)", module_name_,
+				              ref, ref->value.len, ref->value.len, ref->value.data,
+				              r->header_end, r->header_start);
+				/* this is a valid continuation of the previous header */
+				ref->value.len = r->header_end - ref->value.data;
+
 				continue;
 			}
 
 			hkv.key.len = r->header_name_end - r->header_name_start;
 			hkv.key.data = r->header_name_start;
-			hkv.key.data[hkv.key.len] = '\0';
 
 			hkv.value.len = r->header_end - r->header_start;
 			hkv.value.data = r->header_start;
-			hkv.value.data[hkv.value.len] = '\0';
 
 			ngx_log_debug(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
-			              "metafile header \"%V: %V\"",
+			              "%s metafile header \"%V: %V\"",
+			              module_name_,
 			              &hkv.key,
 			              &hkv.value);
 
-			if (ngx_http_header_set_(r, &hkv.key, &hkv.value, strict) != NGX_OK) {
+			if (ngx_http_header_set_(r, &hkv.key, &hkv.value, strict, &ref) != NGX_OK) {
 				return NGX_ERROR;
 			}
 
@@ -557,14 +589,12 @@ ngx_int_t static_header_file_process_(ngx_file_t *f, ngx_http_request_t *r) {
 			continue;
 		}
 
+		/* we know we only have one buffer to read, so if it's incomplete, just
+			give up */
 		if (rc == NGX_AGAIN) {
-			ngx_log_debug(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
-			              "header continues", metafile_sz, buf);
 			if (b.pos == b.last) {
-				ngx_log_debug(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
-				          "never again...\n\tleftover key:'%s' value:'%s'",
-				          hkv.key.data ? hkv.key.data : (u_char *)"(null)",
-				          hkv.value.data ? hkv.value.data : (u_char *)"(null)");
+				ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+				              "%s incomplete header", module_name_ );
 				break;
 			}
 			continue;
@@ -572,13 +602,13 @@ ngx_int_t static_header_file_process_(ngx_file_t *f, ngx_http_request_t *r) {
 
 		if (rc == NGX_HTTP_PARSE_HEADER_DONE) {
 			ngx_log_debug(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
-			              "header done", metafile_sz, buf);
+			              "%s header done", module_name_);
 			break;
 		}
 
 		/* rc == NGX_HTTP_PARSE_INVALID_HEADER */
 		ngx_log_debug(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
-		              "header error", metafile_sz, buf);
+		              "%s header error", module_name_);
 		return NGX_ERROR;
 	}
 
