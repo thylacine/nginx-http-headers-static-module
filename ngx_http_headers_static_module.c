@@ -28,7 +28,8 @@ static ngx_int_t ngx_http_headers_static_header_filter_(ngx_http_request_t *);
 
 static ngx_command_t ngx_http_headers_static_commands_[] = {
 	{	ngx_string("static_headers"),
-		NGX_HTTP_LOC_CONF|NGX_CONF_FLAG,
+		NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_HTTP_LIF_CONF
+		                  |NGX_CONF_FLAG,
 		ngx_conf_set_flag_slot,
 		NGX_HTTP_LOC_CONF_OFFSET,
 		offsetof(ngx_http_headers_static_loc_conf_t, enabled),
@@ -36,7 +37,8 @@ static ngx_command_t ngx_http_headers_static_commands_[] = {
 	},
 
 	{	ngx_string("static_headers_path"),
-		NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
+		NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_HTTP_LIF_CONF
+		                  |NGX_CONF_TAKE1,
 		ngx_conf_set_str_slot,
 		NGX_HTTP_LOC_CONF_OFFSET,
 		offsetof(ngx_http_headers_static_loc_conf_t, path),
@@ -44,7 +46,8 @@ static ngx_command_t ngx_http_headers_static_commands_[] = {
 	},
 
 	{	ngx_string("static_headers_suffix"),
-		NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
+		NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_HTTP_LIF_CONF
+		                  |NGX_CONF_TAKE1,
 		ngx_conf_set_str_slot,
 		NGX_HTTP_LOC_CONF_OFFSET,
 		offsetof(ngx_http_headers_static_loc_conf_t, suffix),
