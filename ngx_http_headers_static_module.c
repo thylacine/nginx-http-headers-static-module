@@ -69,6 +69,7 @@ static ngx_http_module_t  ngx_http_headers_static_module_ctx_ = {
 
 static
 ngx_int_t ngx_http_headers_static_init_(ngx_conf_t *cf) {
+	(void)cf; /* unused */
 	ngx_http_next_header_filter_ = ngx_http_top_header_filter;
 	ngx_http_top_header_filter = ngx_http_headers_static_header_filter_;
 
@@ -298,7 +299,6 @@ ngx_int_t ngx_http_header_set_(ngx_http_request_t *r, ngx_str_t *key, ngx_str_t 
 
 	case 12:
 		if (strncasecmp("Content-Type", (char *)key->data, key->len) == 0) {
-			u_char *lowcase, *x;
 			size_t i;
 
 			ngx_log_debug(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
@@ -504,7 +504,7 @@ ngx_int_t static_header_file_process_(ngx_file_t *f, ngx_http_request_t *r) {
 	if ((n = ngx_read_file(f, buf, metafile_sz, 0)) == NGX_ERROR)
 		return NGX_ERROR;
 
-	if (n != metafile_sz)
+	if (n != (ssize_t)metafile_sz)
 		return NGX_ERROR;
 
 	/* XXX: dumb hack to ensure the header-parser will terminate */
