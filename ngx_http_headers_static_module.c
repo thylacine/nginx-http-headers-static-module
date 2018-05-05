@@ -421,6 +421,8 @@ ngx_int_t ngx_http_header_set_(ngx_http_request_t *r, ngx_str_t *key, ngx_str_t 
 			break;
 		}
 
+		break;
+
 	case 0:
 		ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
 		              "%s will not add nameless header", module_name_);
@@ -481,7 +483,7 @@ ngx_int_t static_header_file_process_(ngx_file_t *f, ngx_http_request_t *r) {
 	ngx_table_elt_t *ref;
 
 	ngx_log_debug(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
-	               "%s processing metafile: %s", module_name_, f->name.data);
+	              "%s processing metafile: %s", module_name_, f->name.data);
 
 	if (f->valid_info) {
 		metafile_sz = f->info.st_size;
@@ -679,21 +681,21 @@ ngx_int_t ngx_http_headers_static_header_filter_(ngx_http_request_t *r) {
 			f.directio = of.is_directio;
 
 			ngx_log_debug(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
-			               "%s meta fd: %d", module_name_, f.fd);
+			              "%s meta fd: %d", module_name_, f.fd);
 
 			if (static_header_file_process_(&f, r) != NGX_OK) {
 				ngx_log_debug(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
-				               "%s processing failed", module_name_);
+				              "%s processing failed", module_name_);
 
 				return NGX_HTTP_INTERNAL_SERVER_ERROR;
 			}
 
 			ngx_log_debug(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
-			               "%s postprocessed", module_name_);
+			              "%s postprocessed", module_name_);
 		}
 
 		ngx_log_debug(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
-		               "%s done", module_name_);
+		              "%s done", module_name_);
 	}
 
 	return ngx_http_next_header_filter_(r);
