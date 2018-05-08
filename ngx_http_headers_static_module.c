@@ -12,10 +12,15 @@ static const char * const module_name_ = "headers_static_module";
 
 typedef struct {
 	ngx_flag_t enabled;
+	ngx_flag_t strict;
 	ngx_str_t path;
 	ngx_str_t suffix;
 } ngx_http_headers_static_loc_conf_t;
 
+#define NGX_HTTP_HEADERS_STATIC_CONF_DEFAULT_ENABLED 0
+#define NGX_HTTP_HEADERS_STATIC_CONF_DEFAULT_STRICT 1
+#define NGX_HTTP_HEADERS_STATIC_CONF_DEFAULT_PATH ".web"
+#define NGX_HTTP_HEADERS_STATIC_CONF_DEFAULT_SUFFIX ".meta"
 
 static ngx_http_output_header_filter_pt ngx_http_next_header_filter_;
 
@@ -33,6 +38,15 @@ static ngx_command_t ngx_http_headers_static_commands_[] = {
 		ngx_conf_set_flag_slot,
 		NGX_HTTP_LOC_CONF_OFFSET,
 		offsetof(ngx_http_headers_static_loc_conf_t, enabled),
+		NULL
+	},
+
+	{	ngx_string("static_headers_strict"),
+		NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_HTTP_LIF_CONF
+		                  |NGX_CONF_FLAG,
+		ngx_conf_set_flag_slot,
+		NGX_HTTP_LOC_CONF_OFFSET,
+		offsetof(ngx_http_headers_static_loc_conf_t, strict),
 		NULL
 	},
 
@@ -96,9 +110,14 @@ char *ngx_http_http_headers_static_merge_loc_conf_(ngx_conf_t *cf, void *parent,
 	ngx_http_headers_static_loc_conf_t *prev = parent;
 	ngx_http_headers_static_loc_conf_t *conf = child;
 
-	ngx_conf_merge_value(conf->enabled, prev->enabled, 0);
-	ngx_conf_merge_str_value(conf->path, prev->path, ".web");
-	ngx_conf_merge_str_value(conf->suffix, prev->suffix, ".meta");
+	ngx_conf_merge_value(conf->enabled, prev->enabled,
+	                     NGX_HTTP_HEADERS_STATIC_CONF_DEFAULT_ENABLED);
+	ngx_conf_merge_value(conf->strict, prev->strict,
+	                     NGX_HTTP_HEADERS_STATIC_CONF_DEFAULT_STRICT);
+	ngx_conf_merge_str_value(conf->path, prev->path,
+	                         NGX_HTTP_HEADERS_STATIC_CONF_DEFAULT_PATH);
+	ngx_conf_merge_str_value(conf->suffix, prev->suffix,
+	                         NGX_HTTP_HEADERS_STATIC_CONF_DEFAULT_SUFFIX);
 
 	if (conf->enabled != 0 && conf->enabled != 1) {
 		ngx_conf_log_error(NGX_LOG_EMERG, cf, 0, "\"%s\" ought to be \"on\" or \"off\", not \"%d\"", "static_headers", conf->enabled);
@@ -199,7 +218,7 @@ ngx_int_t metafilename_build_(ngx_pool_t *pool, ngx_str_t *source_path, ngx_http
 */
 inline
 static
-ngx_int_t ngx_http_header_set_(ngx_http_request_t *r, ngx_str_t *key, ngx_str_t *value, ngx_uint_t strict, ngx_table_elt_t **ref) {
+ngx_int_t ngx_http_header_set_(ngx_http_request_t *r, ngx_str_t *key, ngx_str_t *value, ngx_flag_t strict, ngx_table_elt_t **ref) {
 	ngx_table_elt_t *h = NULL;
 	ngx_table_elt_t **h_ref = NULL;
 
@@ -213,27 +232,28 @@ ngx_int_t ngx_http_header_set_(ngx_http_request_t *r, ngx_str_t *key, ngx_str_t 
 		These headers are not allowed to be overridden, because they are
 		generated based on content or connection state, and thus shouldn't be
 		represented statically:
-			www_authenticate
+			accept_ranges
 			content_length
 			content_range
-			accept_ranges
 			date
+			www_authenticate
 		There may be more which ought to be included in this list.
 
 		These headers have index pointers into the generic header list:
 			content_encoding
-			last_modified
-			location
-			charset
+			etag
 			expires
+			location
 			refresh
 			server
-			etag
 
 		These headers aren't handled generically:
-			status
-			content_type
 			cache-control
+			charset
+			content_type
+			last_modified
+			link
+			status
 	*/
 	switch (key->len) {
 	case 16:
@@ -453,8 +473,6 @@ ngx_int_t ngx_http_header_set_(ngx_http_request_t *r, ngx_str_t *key, ngx_str_t 
 	}
 
 	/*
-		XXX: should a hash actually be computed here? or is that only useful
-			for incoming headers?
 		XXX: should h->lowcase_key get set here, as well?
 	*/
 	h->hash = 1;
@@ -475,9 +493,8 @@ ngx_int_t ngx_http_header_set_(ngx_http_request_t *r, ngx_str_t *key, ngx_str_t 
 */
 inline
 static
-ngx_int_t static_header_file_process_(ngx_file_t *f, ngx_http_request_t *r) {
+ngx_int_t static_header_file_process_(ngx_file_t *f, ngx_http_request_t *r, ngx_flag_t strict) {
 	ngx_keyval_t hkv;
-	const ngx_uint_t strict = 1; /* this could be variable someday */
 	ssize_t n;
 	u_char *buf;
 	ngx_buf_t b;
@@ -686,7 +703,7 @@ ngx_int_t ngx_http_headers_static_header_filter_(ngx_http_request_t *r) {
 			ngx_log_debug(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
 			              "%s meta fd: %d", module_name_, f.fd);
 
-			if (static_header_file_process_(&f, r) != NGX_OK) {
+			if (static_header_file_process_(&f, r, loc_conf->strict) != NGX_OK) {
 				ngx_log_debug(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
 				              "%s processing failed", module_name_);
 
