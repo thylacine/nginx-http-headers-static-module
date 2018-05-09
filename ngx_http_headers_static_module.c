@@ -221,6 +221,7 @@ static
 ngx_int_t ngx_http_header_set_(ngx_http_request_t *r, ngx_str_t *key, ngx_str_t *value, ngx_flag_t strict, ngx_table_elt_t **ref) {
 	ngx_table_elt_t *h = NULL;
 	ngx_table_elt_t **h_ref = NULL;
+	ngx_array_t *pa = NULL;
 
 	*ref = NULL;
 
@@ -248,11 +249,11 @@ ngx_int_t ngx_http_header_set_(ngx_http_request_t *r, ngx_str_t *key, ngx_str_t 
 			server
 
 		These headers aren't handled generically:
-			cache-control
+			cache-control // list
 			charset
 			content_type
 			last_modified
-			link
+			link // list
 			status
 	*/
 	switch (key->len) {
@@ -308,14 +309,8 @@ ngx_int_t ngx_http_header_set_(ngx_http_request_t *r, ngx_str_t *key, ngx_str_t 
 		}
 
 		if (strncasecmp("Cache-Control", (char *)key->data, key->len) == 0) {
-			/* FIXME:
-				For now, just don't allow this one, only because it's fiddly.
-			*/
-			(void)r->headers_out.cache_control; /* ngx_array_t */
-
-			ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
-			              "%s is too lazy to set \"%s\" header", module_name_, key->data);
-			return strict ? NGX_EACCES : NGX_OK;
+			pa = &(r->headers_out.cache_control);
+			break;
 		}
 
 		break;
@@ -444,6 +439,11 @@ ngx_int_t ngx_http_header_set_(ngx_http_request_t *r, ngx_str_t *key, ngx_str_t 
 			break;
 		}
 
+		if (strncasecmp("Link", (char *)key->data, key->len) == 0) {
+			pa = &(r->headers_out.link);
+			break;
+		}
+
 		break;
 
 	case 0:
@@ -480,6 +480,23 @@ ngx_int_t ngx_http_header_set_(ngx_http_request_t *r, ngx_str_t *key, ngx_str_t 
 	h->value = *value;
 
 	*ref = h;
+
+	if (pa) {
+		ngx_table_elt_t **ph;
+
+		if (pa->elts == NULL) {
+			if (ngx_array_init(pa, r->pool, 1, sizeof(ngx_table_elt_t *)) != NGX_OK) {
+				return NGX_ERROR;
+			}
+		}
+
+		ph = ngx_array_push(pa);
+		if (ph == NULL) {
+			return NGX_ERROR;
+		}
+
+		*ph = h;
+	}
 
 	return NGX_OK;
 }
